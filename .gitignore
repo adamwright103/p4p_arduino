@@ -1,0 +1,18 @@
+# Arduino / arduino-cli build output
+build/
+*.hex
+*.elf
+*.bin
+*.map
+*.d
+*.o
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp
+*~
+
+# Captured serial logs
+*.log
+*.csv
