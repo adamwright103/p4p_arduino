@@ -7,8 +7,10 @@
 //     +Vy  LEFT,    m/s
 //     +Wz  ANTICLOCKWISE viewed from above, rad/s
 //
-// That is a right-handed frame and it matches the sign of Imu::heading(), so
-// a positive Wz makes the reported heading increase. Ported from the mecanum
+// That is a right-handed frame, and it is REP-103, so it matches the frame the
+// Pi's IMU node reports in: a positive Wz should make the Pi's heading
+// increase. Should, not does -- the IMU was unplugged when Vx and Vy were
+// measured, so Wz is the one axis still unverified. Ported from the mecanum
 // mixing in MechEng 706 servo_control.h, converted from the old arbitrary
 // [-300, 300] effort units to SI, with the (L+l) rotation scaling restored and
 // saturation made uniform.
