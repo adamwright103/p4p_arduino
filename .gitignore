@@ -16,3 +16,6 @@ build/
 # Captured serial logs
 *.log
 *.csv
+
+# Host test binaries
+test/speedmap_test

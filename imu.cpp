@@ -1,5 +1,6 @@
 // imu.cpp
 #include "imu.h"
+#include "config.h"
 
 Imu::Imu(int8_t reset_pin, float yaw_sign)
     : bno_(reset_pin), yaw_sign_(yaw_sign) {}
@@ -14,7 +15,14 @@ bool Imu::begin(uint8_t i2c_addr, uint32_t report_interval_us) {
 }
 
 bool Imu::enableReports() {
+  // All three are on-chip fused or calibrated outputs. Requesting one report
+  // per quantity, rather than deriving them from raw data on the Mega, is the
+  // whole point of using this part.
+  const sh2_SensorId_t accel_id = IMU_ACCEL_GRAVITY_REMOVED
+                                      ? SH2_LINEAR_ACCELERATION
+                                      : SH2_ACCELEROMETER;
   bool ok = bno_.enableReport(SH2_GAME_ROTATION_VECTOR, report_us_);
+  ok = bno_.enableReport(accel_id, report_us_) && ok;
   ok = bno_.enableReport(SH2_GYROSCOPE_CALIBRATED, report_us_) && ok;
   return ok;
 }
@@ -54,6 +62,17 @@ uint8_t Imu::poll() {
         n++;
         break;
       }
+      // Both acceleration reports carry the same payload struct, and only one
+      // of the two is ever enabled, so they share a handler.
+      case SH2_LINEAR_ACCELERATION:
+      case SH2_ACCELEROMETER: {
+        const auto& a = value_.un.accelerometer;
+        accel_x_ = a.x;
+        accel_y_ = a.y;
+        accel_z_ = a.z;
+        break;
+      }
+
       case SH2_GYROSCOPE_CALIBRATED:
         yaw_rate_ = yaw_sign_ * value_.un.gyroscope.z;
         break;

@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include "config.h"
 #include "system_setup.h"
+#include "speedmap.h"
 
 Imu imu(IMU_RESET_PIN, IMU_YAW_SIGN);
 Drive drive;
@@ -33,7 +34,28 @@ void systemSetup() {
     delay(1000);
   }
 
+  // Fast mode, *after* imu.begin(): Adafruit_I2CDevice::begin() calls
+  // Wire.begin(), which resets the prescaler to 100 kHz, so setting the clock
+  // any earlier would be undone. A spontaneous BNO reset re-enables reports
+  // without touching Wire, so the clock survives that.
+  Wire.setClock(IMU_I2C_HZ);
+
   Serial.println(F("# BNO085 ready"));
+
+  // What the drive can actually do, straight off the speed map. Worth saying
+  // out loud at boot: the limits are well below what a V command may ask for,
+  // and a saturated command is no longer visible in telemetry.
+  Serial.print(F("# speed range, forward "));
+  Serial.print(SpeedMap::minForwardMps(), 3);
+  Serial.print(F(" to "));
+  Serial.print(SpeedMap::maxForwardMps(), 3);
+  Serial.print(F(" m/s, strafe "));
+  Serial.print(SpeedMap::minStrafeMps(), 3);
+  Serial.print(F(" to "));
+  Serial.print(SpeedMap::maxStrafeMps(), 3);
+  Serial.println(F(" m/s"));
+  Serial.println(F("# outside that: faster saturates, slower snaps up, zero is zero"));
+
   Serial.println(F("# DISARMED -- send E to enable"));
-  Serial.println(F("t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad"));
+  Serial.println(F("t_ms,heading_rad,ax,ay,yaw_rate_dps"));
 }

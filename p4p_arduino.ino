@@ -2,11 +2,11 @@
   p4p_arduino.ino
 
   Low-level driver for the P4P mecanum bot. Takes body-velocity commands from
-  the Pi over USB serial and streams IMU heading plus the applied velocity
-  back. See README.md for the full serial API.
+  the Pi over USB serial and streams the BNO085's fused IMU state back. See
+  README.md for the full serial API.
 
   Uplink, at STREAM_RATE_HZ:
-      t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad
+      t_ms,heading_rad,ax,ay,yaw_rate_dps
   Downlink:
       E | S | V,<vx>,<vy>,<wz>
 
@@ -25,36 +25,19 @@
 static RateTimer stream_timer(1000000UL / STREAM_RATE_HZ);
 static RateTimer control_timer(1000000UL / CONTROL_RATE_HZ);
 
-// Telemetry flag bits.
-static constexpr uint8_t FLAG_ARMED     = 0x01;
-static constexpr uint8_t FLAG_TIMEOUT   = 0x02;  // no V within CMD_TIMEOUT_MS
-static constexpr uint8_t FLAG_SATURATED = 0x04;  // command scaled down to fit
-
-static bool timed_out = false;
-
+// One CSV line of IMU state. Everything here comes straight off the BNO085's
+// fused reports, so a line is a snapshot of what the chip believes, with no
+// Mega-side state mixed in.
 void printTelemetry() {
-  uint8_t flags = 0;
-  if (cmd.armed())       flags |= FLAG_ARMED;
-  if (timed_out)         flags |= FLAG_TIMEOUT;
-  if (drive.saturated()) flags |= FLAG_SATURATED;
-
   Serial.print(imu.lastSampleMs());
   Serial.print(',');
   Serial.print(imu.heading(), 4);
   Serial.print(',');
-  Serial.print(degrees(imu.yawRate()), 1);
+  Serial.print(imu.accelX(), 3);
   Serial.print(',');
-  Serial.print(drive.appliedVx(), 3);
+  Serial.print(imu.accelY(), 3);
   Serial.print(',');
-  Serial.print(drive.appliedVy(), 3);
-  Serial.print(',');
-  Serial.print(drive.appliedWz(), 3);
-  Serial.print(',');
-  Serial.print(flags);
-  Serial.print(',');
-  Serial.print(imu.resetCount());
-  Serial.print(',');
-  Serial.println(cmd.badCount());
+  Serial.println(degrees(imu.yawRate()), 1);
 }
 
 void setup() {
@@ -69,7 +52,7 @@ void loop() {
     // The watchdog is checked here rather than in the parser, so that a flood
     // of inbound commands can never starve it and a silent Pi can never leave
     // a stale velocity latched on the motors.
-    timed_out = (cmd.ageMs() > CMD_TIMEOUT_MS);
+    const bool timed_out = (cmd.ageMs() > CMD_TIMEOUT_MS);
 
     if (!cmd.armed() || timed_out) {
       drive.stop();
@@ -81,6 +64,4 @@ void loop() {
   if (stream_timer.due()) {    // STREAM_RATE_HZ
     printTelemetry();
   }
-
-  // Keep delay() out of here.
 }
