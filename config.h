@@ -1,21 +1,25 @@
 // config.h
-// Every number you might want to change, in one place. Pins and I2C address
-// follow the Mega + sensor shield: SDA = 20, SCL = 21.
+// Every number you might want to change, in one place.
 #pragma once
 #include <stdint.h>
 
 // ---------------------------------------------------------------------------
 // Serial link to the Pi (Serial0 on the Mega)
 // ---------------------------------------------------------------------------
-// 500000 is an exact divisor of the Mega's 16 MHz clock (UBRR = 3, 0% error)
-// and well inside what the on-board ATmega16U2 USB bridge will carry. Do not
-// use 230400: it lands 3.5% off on this clock and drops characters.
-// *** The Pi must be opened at this same rate. ***
-constexpr unsigned long SERIAL_BAUD = 500000;
+// 115200 because that is what the Pi's bridge opens the port at
+// (p4p_serial_bridge, `baud` parameter default, not overridden in its launch
+// file), and because nothing here needs more. The old 500000 existed to carry
+// 200 Hz of 46-byte IMU rows, ~9 kB/s. The uplink is now one ~22-byte row at
+// 50 Hz, ~1.1 kB/s, a tenth of this link. *** The Pi must be opened at this
+// same rate. *** If it is ever raised, 500000 is the next sane step: it is an
+// exact divisor of the Mega's 16 MHz clock (UBRR = 3, 0% error). Do not use
+// 230400, which lands 3.5% off on this clock and drops characters.
+constexpr unsigned long SERIAL_BAUD = 115200;
 
-// How often a telemetry line is sent, Hz. Keep this at or below the IMU report
-// rate (1e6 / IMU_REPORT_US) -- streaming faster only repeats samples.
-constexpr uint16_t STREAM_RATE_HZ = 200;
+// How often a telemetry row is sent, Hz. There is no point above
+// CONTROL_RATE_HZ: the applied velocity is the only thing reported and the
+// control task is what recomputes it, so a faster stream only repeats rows.
+constexpr uint16_t STREAM_RATE_HZ = 50;
 
 // How often the motor outputs are recomputed and the watchdog is checked, Hz.
 constexpr uint16_t CONTROL_RATE_HZ = 50;
@@ -27,43 +31,6 @@ constexpr uint32_t CMD_TIMEOUT_MS = 400;
 // Longest accepted command line, bytes. "V,-1.234567,-1.234567,-1.234567" is
 // 32, so this leaves room.
 constexpr uint8_t CMD_BUF_LEN = 48;
-
-// ---------------------------------------------------------------------------
-// IMU (BNO085)
-// ---------------------------------------------------------------------------
-// BNO085 report interval in microseconds, applied to every enabled report
-// (game rotation vector, acceleration, gyro). 5000 = 200 Hz. The chip will
-// take anything up to 400 Hz on each of these, but not all three at once at
-// full rate, and the uplink only streams at STREAM_RATE_HZ, so there is no
-// point going faster.
-constexpr uint32_t IMU_REPORT_US = 5000;
-
-// Which fused acceleration report to stream as ax/ay.
-//   true  -> SH2_LINEAR_ACCELERATION, fused accel with gravity removed
-//   false -> SH2_ACCELEROMETER, calibrated accel, gravity included
-// Linear acceleration is the right one for a floor robot: any chassis tilt,
-// suspension sag or hard cornering otherwise leaks a slice of the 9.81 m/s^2
-// gravity vector into ax/ay, as a bias the Pi cannot tell from real motion.
-constexpr bool IMU_ACCEL_GRAVITY_REMOVED = true;
-
-// 0x4A by default, 0x4B if the DI/ADR pin is pulled high.
-constexpr uint8_t IMU_I2C_ADDR = 0x4A;
-
-// I2C bus clock, Hz. 400000 is Fast mode, the BNO085's documented maximum
-// (datasheet 1.2.2 and 6.5.1). The 100 kHz default cannot carry three reports
-// at 200 Hz: one batched transfer takes ~4.9 ms there, which does not fit in
-// the 5 ms budget. At 400 kHz the same transfer is ~1.2 ms. Drop back to
-// 100000 if the bus proves unreliable with long shield wiring -- and halve
-// STREAM_RATE_HZ and double IMU_REPORT_US if you do.
-constexpr uint32_t IMU_I2C_HZ = 400000;
-
-// Reset pin, or -1 if not wired.
-constexpr int8_t IMU_RESET_PIN = -1;
-
-// +1 with the chip mounted face up. Set to -1 if the chip is mounted upside
-// down, so that heading still increases anticlockwise (viewed from above).
-// Verified +1 by rotation test: clockwise rotation drives heading negative.
-constexpr float IMU_YAW_SIGN = 1.0f;
 
 // ---------------------------------------------------------------------------
 // Drive: mecanum chassis

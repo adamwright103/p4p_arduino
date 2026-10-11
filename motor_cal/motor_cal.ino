@@ -5,14 +5,15 @@
   speed can be timed over a measured distance by hand. Set SPEED_PCT and AXIS
   below, flash, put the bot on the floor, and it drives after a 1 s pause.
 
-  This is a separate sketch, not a mode of the firmware, for one reason: the
-  firmware blocks in systemSetup() until the BNO085 answers on I2C, and the
-  IMU is currently unplugged. Nothing here touches the IMU or the serial
-  command parser.
+  This is a separate sketch, not a mode of the firmware, because the firmware
+  cannot do this job: it only moves while a Pi keeps feeding it V commands
+  inside the 400 ms watchdog, and it routes every velocity through the speed
+  map -- the map these runs produce. The rig needs the opposite: no host, and
+  one fixed raw wheel command.
 
-  `config.h`, `drive.h` and `drive.cpp` in this folder are symlinks to the
-  firmware's own files, so the mixing, the pulse widths and the sign trims
-  being calibrated are byte-for-byte the ones that ship. Do not copy them.
+  The firmware sources in this folder are symlinks, so the mixing, the pulse
+  widths, the pin mapping and the sign trims being calibrated are byte-for-byte
+  the ones that ship. Do not copy them.
 
   Repeating a run needs no re-flash -- tap RESET on the Mega, or re-open the
   serial port (DTR resets the board). Either way you get the same 1 s pause

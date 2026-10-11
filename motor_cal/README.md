@@ -11,14 +11,13 @@ the curve is **flat above 60%**, and everything below 20% is unmapped.
 
 ## Why it is a separate sketch
 
-The firmware blocks in `systemSetup()` until the BNO085 answers on I2C:
+The firmware cannot do this job. It only moves while the Pi keeps feeding it
+`V` commands inside the 400 ms watchdog, and it routes every velocity through
+the speed map — the map these runs produce. This rig needs the opposite: no
+host at all, and one fixed raw wheel command held steady.
 
-```cpp
-while (!imu.begin(IMU_I2C_ADDR, IMU_REPORT_US)) { ... delay(1000); }
-```
-
-With the IMU unplugged it never gets past that, so it cannot drive at all.
-This sketch touches neither the IMU nor the command parser.
+(It was also, until the IMU moved to the Pi, the only way to drive at all:
+`systemSetup()` used to block until the BNO085 answered on I2C.)
 
 `config.h`, `drive.h`, `drive.cpp`, `speedmap.h` and `speedmap.cpp` here are
 **symlinks** to the firmware's own files. The mixing, pulse widths, pin mapping
