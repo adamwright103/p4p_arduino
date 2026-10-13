@@ -34,6 +34,8 @@ void Drive::setBodyVelocity(float vx, float vy, float wz) {
   // The trims and the strafe gain act on the body's own axes, so they come
   // before the channel rotation: after it, the mixing's vy is the body's vx.
   vx *= DRIVE_VX_SIGN;
+  // The turn a strafe causes (config.h), cancelled in the body's own frame.
+  wz += STRAFE_YAW_FF * vy;
   vy *= DRIVE_VY_SIGN * STRAFE_GAIN;
   wz *= DRIVE_WZ_SIGN;
   if (DRIVE_CHANNELS_ROTATED) {
@@ -64,7 +66,7 @@ void Drive::setBodyVelocity(float vx, float vy, float wz) {
       const float need = wheelOffsetUs(ch, w[ch]);
       if (need > span) {
         const uint8_t dir = (w[ch] >= 0.0f) ? 0 : 1;
-        const float room = (span - WHEEL_DEADBAND_US[ch][dir]) * WHEEL_MPS_PER_US[ch];
+        const float room = (span - WHEEL_DEADBAND_US[ch][dir]) * WHEEL_MPS_PER_US[ch][dir];
         const float s = room / fabs(w[ch]);
         if (s < scale) scale = s;
       }
@@ -124,7 +126,7 @@ float Drive::wheelOffsetUs(uint8_t ch, float speed) {
   const float mag = fabs(speed);
   if (mag < WHEEL_STOP_MPS) return 0.0f;
   const uint8_t dir = (speed >= 0.0f) ? 0 : 1;
-  return WHEEL_DEADBAND_US[ch][dir] + mag / WHEEL_MPS_PER_US[ch];
+  return WHEEL_DEADBAND_US[ch][dir] + mag / WHEEL_MPS_PER_US[ch][dir];
 }
 
 uint16_t Drive::wheelPulse(uint8_t ch, float speed, float mirror) {

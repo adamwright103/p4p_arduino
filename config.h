@@ -93,8 +93,8 @@ constexpr bool DRIVE_CHANNELS_ROTATED = true;
 // (153 x 178 mm between roller centres, 2026-10-13), but the drive calibration
 // of 2026-10-13 found the robot turning as if this were 0.1124 m (the rollers
 // slip). The effective value is the one that makes a commanded Wz come out
-// right, so that is what is used.
-constexpr float CHASSIS_L_PLUS_W = 0.1124f;
+// right, so that is what is used. Refitted from two runs: 0.1384.
+constexpr float CHASSIS_L_PLUS_W = 0.1384f;
 
 // *** UNCALIBRATED -- see "Calibration" in README.md ***
 // Wheel surface speed at full pulse deflection, m/s. This is the single
@@ -107,30 +107,42 @@ constexpr float WHEEL_MAX_MPS = 0.50f;
 
 // Mecanum wheels slip more sideways than forwards, so a commanded strafe
 // undershoots. Raise above 1.0 to compensate once measured. 1.0 = no
-// correction. Measured 2026-10-13: sideways the chassis makes 0.90 of what the
-// same wheel speeds make forwards, so 1 / 0.90.
-constexpr float STRAFE_GAIN = 1.11f;
+// correction. Measured 2026-10-13 (two runs): sideways the chassis makes 0.77
+// of what the same wheel speeds make forwards, so 1 / 0.77.
+constexpr float STRAFE_GAIN = 1.30f;
 
 // Per-wheel calibration (2026-10-13). Each motor does nothing until its pulse is
 // some distance from neutral, and that distance differs by channel and by
-// direction; past it, each wheel speeds up by its own m/s per microsecond. One
+// direction; past it, each wheel speeds up by its own m/s per microsecond,
+// which also differs by direction (the front-right wheel's by 1.6 times). One
 // constant for all four (WHEEL_MAX_MPS) left small requests in the deadband and,
 // with two motors starting late in one direction, turned every strafe into a
 // clockwise turn as well. With DRIVE_WHEEL_CAL true, the mixing asks each wheel
 // for a speed in m/s and wheelPulse() inverts that wheel's own response: the
 // pulse starts at the wheel's deadband and adds 1 / WHEEL_MPS_PER_US
-// microseconds per m/s. Fitted from a calibration bag
-// (controller_ws tools/drive_calibration_run.py, 30 single-axis steps from
-// rest) through the mixing below, with each step's speed from the
-// accelerometer (the board poses misread sideways motion when ambiguous) and
-// its turn rate from the gyro; see "Calibration" in README.md. Rows are the
+// microseconds per m/s. Fitted (controller_ws tools/drive_wheel_fit.py
+// --gain-per-direction) from two calibration runs together, 60 single-axis
+// steps from rest (drivecal_20261013_043214 on the single-constant firmware,
+// drivecal_20261013_052711 on the first per-wheel constants, with the pulses
+// logged), through the mixing below: each step's speed from the accelerometer
+// (the board poses misread sideways motion when ambiguous) and its turn rate
+// from the gyro; see "Calibration" in README.md. Rows are the
 // channels LF, RF, LR, RR (the PIN_* names, not the wheels they drive, see
 // DRIVE_CHANNELS_ROTATED); [0] is the mixing's positive sense, [1] negative.
 // false restores the single-constant mapping through WHEEL_MAX_MPS.
 constexpr bool DRIVE_WHEEL_CAL = true;
 constexpr float WHEEL_DEADBAND_US[4][2] = {
-  {51.0f, 100.0f}, {56.0f, 60.7f}, {98.5f, 58.3f}, {54.8f, 73.8f}};
-constexpr float WHEEL_MPS_PER_US[4] = {1.308e-3f, 1.516e-3f, 1.589e-3f, 1.341e-3f};
+  {76.0f, 58.2f}, {51.2f, 55.5f}, {83.7f, 55.2f}, {63.9f, 54.5f}};
+constexpr float WHEEL_MPS_PER_US[4][2] = {
+  {1.838e-3f, 1.124e-3f}, {1.735e-3f, 1.613e-3f}, {1.482e-3f, 1.804e-3f}, {1.592e-3f, 1.510e-3f}};
+// Strafing turns the chassis: with the wheels calibrated, a strafe still turned
+// it about -0.52 rad/s per m/s (clockwise going left; 2026-10-13, ten strafe
+// steps of 0.02-0.15 m/s, gyro). No per-wheel speed explains it (the rollers
+// must grip differently front and rear when sliding), so it is cancelled at
+// the request: each strafe adds this much turn, rad/s per m/s, before mixing.
+// 0 turns it off.
+constexpr float STRAFE_YAW_FF = 0.52f;
+
 // A wheel asked for less than this is held at neutral, so a near-zero request
 // does not sit on the edge of its deadband. Small: 0.5 mm/s is 0.005 rad/s of
 // turn, and the MPC's heading corrections are often a few hundredths of that.

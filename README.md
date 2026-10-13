@@ -252,38 +252,57 @@ found:
   clockwise (about 0.1 rad/s at 0.1 m/s left), because two motors start late in
   one direction.
 
-So each channel now has its own deadband per direction and its own gain:
+So each channel now has its own deadband and gain, both per direction, and a
+strafe also asks for a little turn to cancel the turn it causes:
 
 ```
-channel (drives the)    gain [mm/s per us]   deadband [us]: + sense / - sense
-LF  (front-right)       1.308                51.0 / 100.0
-RF  (rear-right)        1.516                56.0 / 60.7
-LR  (front-left)        1.589                98.5 / 58.3
-RR  (rear-left)         1.341                54.8 / 73.8
-strafe efficiency 0.90 (STRAFE_GAIN 1.11); effective turn lever 0.1124 m (CHASSIS_L_PLUS_W)
+channel (drives the)    gain + / - [mm/s per us]   deadband + / - [us]
+LF  (front-right)       1.838 / 1.124              76.0 / 58.2
+RF  (rear-right)        1.735 / 1.613              51.2 / 55.5
+LR  (front-left)        1.482 / 1.804              83.7 / 55.2
+RR  (rear-left)         1.592 / 1.510              63.9 / 54.5
+strafe efficiency 0.77 (STRAFE_GAIN 1.30); effective turn lever 0.1384 m (CHASSIS_L_PLUS_W)
+strafe-to-turn feedforward STRAFE_YAW_FF 0.52 rad/s per m/s
 ```
 
-They come from fitting one model to all 30 steps at once: each wheel's speed
-is its gain times its pulse's distance past its deadband, combined through the
-mixing's inverse (the forward kinematics), against each step's measured
-forward and sideways speed and turn rate. The speeds come from the
-accelerometer, integrated over each step's start and stop; the turn rates from
-the gyro. The fit is within the noise (0.96 sigma). Forward, the integrated
-speeds agree with the board poses (ratio 0.8-1.1), which confirms the poses'
-scale. Sideways they do not: with the board head-on at 1 m most poses were
-ambiguous, and the poses read 0.03-0.04 m/s for a strafe the accelerometer
-put at 0.10-0.14 m/s. A fit to the poses instead gave deadbands up to 115 us
-and a 0.73 strafe efficiency. With `DRIVE_WHEEL_CAL` the mixing asks each
-wheel for a speed and `Drive::wheelPulse()` inverts that wheel's own response.
-On the laptop, a host build of `drive.cpp` fed through the fitted model gives
-back every commanded twist within a few mm/s, with the strafe's turn gone. On
-the robot it still has to be checked: run `drive_calibration_run.py` again; the
-telemetry now reports the pulses.
+They come from fitting one model to two runs at once (60 single-axis steps
+from rest; the second run on the first per-wheel constants, with its pulses
+logged): each wheel's speed is its gain times its pulse's distance past its
+deadband, combined through the mixing's inverse (the forward kinematics),
+against each step's forward and sideways speed (the accelerometer, integrated
+over the step's start and stop) and turn rate (the gyro). The fit uses a
+robust loss, so a step the robot could not make does not drag it.
 
-To refit, run `tools/drive_calibration_run.py` (with `DRIVE_WHEEL_CAL` false,
-so the pulses follow the single-constant mapping the fit assumes) and fit the
-bag per wheel with `tools/drive_wheel_fit.py <bag>`, which prints these
-constants. Its self-test recovers gains within about 2 % and deadbands within
+The board poses are not used for speed: forward they agree with the
+accelerometer (ratio 0.8-1.1), which confirms their scale, but with the board
+head-on at 1 m most poses were ambiguous, and they read 0.03-0.04 m/s for a
+strafe the accelerometer put at 0.10-0.14 m/s.
+
+No per-wheel speed explains the turn a strafe causes (about -0.52 rad/s per
+m/s, clockwise going left): the rollers must grip differently front and rear.
+`STRAFE_YAW_FF` cancels it at the request.
+
+Checked on the robot (2026-10-13, three runs on these constants):
+
+```
+                         before (WHEEL_MAX_MPS 0.5)    now
+forward/back gain        0 below ~0.03 m/s, 1.4-1.8    0.9-1.3 for 0.04-0.15 m/s
+turn gain                0 below ~0.2 rad/s, ~3        0.6-1.0
+turn while driving       up to 0.06 rad/s              0.03 rad/s or less
+turn while strafing      0.05-0.11 rad/s               0.01-0.02 right, about 0.06 left at 0.1-0.15 m/s
+strafe gain              0 below ~0.06 m/s             0.84-1.13 from 0.04 m/s
+```
+
+At 0.02 m/s the response is still erratic (0.3-2 times). Strafing left turns
+the robot about twice as much as strafing right, so one feedforward leaves
+about -0.06 rad/s going left; a per-direction term would remove it. None of
+this needs to be exact: it changes with the battery's voltage, and the
+controller's feedback corrects what is left.
+
+To refit, run `tools/drive_calibration_run.py` (any firmware that logs its
+pulses; the calibrated one is fine) and fit the bags per wheel with
+`tools/drive_wheel_fit.py <bag> [<bag> ...] --gain-per-direction`, which prints
+these constants. Its self-test recovers gains within about 2 % and deadbands within
 about 5 us, but the strafe efficiency only within about 0.1. Deadbands measured from rest may overstate them while the
 wheels are already turning.
 
