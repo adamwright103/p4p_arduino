@@ -35,6 +35,11 @@ constexpr uint8_t IMU_I2C_ADDR = 0x4A;
 // Reset pin, or -1 if not wired.
 constexpr int8_t IMU_RESET_PIN = -1;
 
+// How many times setup() looks for the BNO, 250 ms apart, before carrying on
+// without it. The BNO085 now sits on the Pi's I2C bus, so a Mega without one
+// is normal: the heading and yaw-rate columns then read 0.
+constexpr uint8_t IMU_BEGIN_ATTEMPTS = 4;
+
 // +1 with the chip mounted face up. Set to -1 if the chip is mounted upside
 // down, so that heading still increases anticlockwise (viewed from above).
 // Verified +1 by rotation test: clockwise rotation drives heading negative.
@@ -70,9 +75,26 @@ constexpr float DRIVE_VX_SIGN = 1.0f;   // +Vx should drive forward
 constexpr float DRIVE_VY_SIGN = 1.0f;   // +Vy should strafe LEFT
 constexpr float DRIVE_WZ_SIGN = 1.0f;   // +Wz should rotate ANTICLOCKWISE
 
-// Mecanum geometry: half-length + half-width of the wheel base, metres.
-// 15 cm + 9 cm on this chassis. Scales how much wheel speed a given Wz costs.
-constexpr float CHASSIS_L_PLUS_W = 0.24f;
+// The four motor channels sit one wheel round from where the mixing assumes.
+// Measured on the robot 2026-10-13 (one axis at a time on the floor, and a
+// docking bag): a forward request drove it LEFT, a left request drove it BACK,
+// and an anticlockwise one turned it CLOCKWISE. The sign trims above cannot
+// express that, since it swaps the axes. With this true, setBodyVelocity turns
+// each request into the mixing's frame, (vx, vy, wz) -> (vy, -vx, -wz), which
+// cancels it exactly; the trims and STRAFE_GAIN still act on the body's own
+// axes, before the turn. For X rollers it matches this wiring: the LEFT_FRONT
+// channel drives the front-right wheel, RIGHT_FRONT the rear-right (reversed),
+// LEFT_REAR the front-left (reversed) and RIGHT_REAR the rear-left. The proper
+// fix is to reassign the four PIN_* and the mirror flags; then set this false.
+constexpr bool DRIVE_CHANNELS_ROTATED = true;
+
+// Mecanum geometry: half-length + half-width of the wheel base, metres. Scales
+// how much wheel speed a given Wz costs. The chassis measures 76.5 + 89 mm
+// (153 x 178 mm between roller centres, 2026-10-13), but the drive calibration
+// of 2026-10-13 found the robot turning as if this were 0.1124 m (the rollers
+// slip). The effective value is the one that makes a commanded Wz come out
+// right, so that is what is used.
+constexpr float CHASSIS_L_PLUS_W = 0.1124f;
 
 // *** UNCALIBRATED -- see "Calibration" in README.md ***
 // Wheel surface speed at full pulse deflection, m/s. This is the single
@@ -85,5 +107,31 @@ constexpr float WHEEL_MAX_MPS = 0.50f;
 
 // Mecanum wheels slip more sideways than forwards, so a commanded strafe
 // undershoots. Raise above 1.0 to compensate once measured. 1.0 = no
-// correction.
-constexpr float STRAFE_GAIN = 1.0f;
+// correction. Measured 2026-10-13: sideways the chassis makes 0.90 of what the
+// same wheel speeds make forwards, so 1 / 0.90.
+constexpr float STRAFE_GAIN = 1.11f;
+
+// Per-wheel calibration (2026-10-13). Each motor does nothing until its pulse is
+// some distance from neutral, and that distance differs by channel and by
+// direction; past it, each wheel speeds up by its own m/s per microsecond. One
+// constant for all four (WHEEL_MAX_MPS) left small requests in the deadband and,
+// with two motors starting late in one direction, turned every strafe into a
+// clockwise turn as well. With DRIVE_WHEEL_CAL true, the mixing asks each wheel
+// for a speed in m/s and wheelPulse() inverts that wheel's own response: the
+// pulse starts at the wheel's deadband and adds 1 / WHEEL_MPS_PER_US
+// microseconds per m/s. Fitted from a calibration bag
+// (controller_ws tools/drive_calibration_run.py, 30 single-axis steps from
+// rest) through the mixing below, with each step's speed from the
+// accelerometer (the board poses misread sideways motion when ambiguous) and
+// its turn rate from the gyro; see "Calibration" in README.md. Rows are the
+// channels LF, RF, LR, RR (the PIN_* names, not the wheels they drive, see
+// DRIVE_CHANNELS_ROTATED); [0] is the mixing's positive sense, [1] negative.
+// false restores the single-constant mapping through WHEEL_MAX_MPS.
+constexpr bool DRIVE_WHEEL_CAL = true;
+constexpr float WHEEL_DEADBAND_US[4][2] = {
+  {51.0f, 100.0f}, {56.0f, 60.7f}, {98.5f, 58.3f}, {54.8f, 73.8f}};
+constexpr float WHEEL_MPS_PER_US[4] = {1.308e-3f, 1.516e-3f, 1.589e-3f, 1.341e-3f};
+// A wheel asked for less than this is held at neutral, so a near-zero request
+// does not sit on the edge of its deadband. Small: 0.5 mm/s is 0.005 rad/s of
+// turn, and the MPC's heading corrections are often a few hundredths of that.
+constexpr float WHEEL_STOP_MPS = 0.0005f;

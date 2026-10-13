@@ -10,20 +10,40 @@ void Drive::begin() {
 }
 
 void Drive::stop() {
-  lf_.writeMicroseconds(MOTOR_US_NEUTRAL);
-  rf_.writeMicroseconds(MOTOR_US_NEUTRAL);
-  lr_.writeMicroseconds(MOTOR_US_NEUTRAL);
-  rr_.writeMicroseconds(MOTOR_US_NEUTRAL);
+  write(MOTOR_US_NEUTRAL, MOTOR_US_NEUTRAL, MOTOR_US_NEUTRAL, MOTOR_US_NEUTRAL);
   applied_vx_ = 0.0f;
   applied_vy_ = 0.0f;
   applied_wz_ = 0.0f;
   saturated_ = false;
 }
 
+void Drive::write(uint16_t lf, uint16_t rf, uint16_t lr, uint16_t rr) {
+  lf_.writeMicroseconds(lf);
+  rf_.writeMicroseconds(rf);
+  lr_.writeMicroseconds(lr);
+  rr_.writeMicroseconds(rr);
+  pulse_us_[CH_LF] = lf;
+  pulse_us_[CH_RF] = rf;
+  pulse_us_[CH_LR] = lr;
+  pulse_us_[CH_RR] = rr;
+}
+
 void Drive::setBodyVelocity(float vx, float vy, float wz) {
+  // The request as the caller gave it, in the body frame, for the echo below.
+  const float req_vx = vx, req_vy = vy, req_wz = wz;
+  // The trims and the strafe gain act on the body's own axes, so they come
+  // before the channel rotation: after it, the mixing's vy is the body's vx.
   vx *= DRIVE_VX_SIGN;
   vy *= DRIVE_VY_SIGN * STRAFE_GAIN;
   wz *= DRIVE_WZ_SIGN;
+  if (DRIVE_CHANNELS_ROTATED) {
+    // See config.h: the mixing's frame is the body's turned a quarter turn with
+    // the yaw mirrored, so turn the request into it before mixing.
+    const float fwd = vx;
+    vx = vy;
+    vy = -fwd;
+    wz = -wz;
+  }
 
   // Textbook mecanum inverse kinematics, X-roller configuration. Each term is
   // the wheel's contact-patch speed in m/s. The rotation term is the tangential
@@ -33,6 +53,32 @@ void Drive::setBodyVelocity(float vx, float vy, float wz) {
   float rf = vx + vy + rot;
   float lr = vx + vy - rot;
   float rr = vx - vy + rot;
+
+  if (DRIVE_WHEEL_CAL) {
+    // Each wheel's own response (config.h). Saturation stays uniform: the
+    // largest scale at which every wheel's pulse still fits the span.
+    const float span = (float)(MOTOR_US_MAX - MOTOR_US_NEUTRAL);
+    const float w[NUM_CHANNELS] = {lf, rf, lr, rr};
+    float scale = 1.0f;
+    for (uint8_t ch = 0; ch < NUM_CHANNELS; ++ch) {
+      const float need = wheelOffsetUs(ch, w[ch]);
+      if (need > span) {
+        const uint8_t dir = (w[ch] >= 0.0f) ? 0 : 1;
+        const float room = (span - WHEEL_DEADBAND_US[ch][dir]) * WHEEL_MPS_PER_US[ch];
+        const float s = room / fabs(w[ch]);
+        if (s < scale) scale = s;
+      }
+    }
+    saturated_ = (scale < 1.0f);
+    write(wheelPulse(CH_LF, lf * scale, MOTOR_MIRROR_LEFT),
+          wheelPulse(CH_RF, rf * scale, MOTOR_MIRROR_RIGHT),
+          wheelPulse(CH_LR, lr * scale, MOTOR_MIRROR_LEFT),
+          wheelPulse(CH_RR, rr * scale, MOTOR_MIRROR_RIGHT));
+    applied_vx_ = req_vx * scale;
+    applied_vy_ = req_vy * scale;
+    applied_wz_ = req_wz * scale;
+    return;
+  }
 
   // Normalise to full deflection.
   const float inv = 1.0f / WHEEL_MAX_MPS;
@@ -52,17 +98,15 @@ void Drive::setBodyVelocity(float vx, float vy, float wz) {
 
   lf *= scale;  rf *= scale;  lr *= scale;  rr *= scale;
 
-  lf_.writeMicroseconds(toPulse(lf, MOTOR_MIRROR_LEFT));
-  rf_.writeMicroseconds(toPulse(rf, MOTOR_MIRROR_RIGHT));
-  lr_.writeMicroseconds(toPulse(lr, MOTOR_MIRROR_LEFT));
-  rr_.writeMicroseconds(toPulse(rr, MOTOR_MIRROR_RIGHT));
+  write(toPulse(lf, MOTOR_MIRROR_LEFT), toPulse(rf, MOTOR_MIRROR_RIGHT),
+        toPulse(lr, MOTOR_MIRROR_LEFT), toPulse(rr, MOTOR_MIRROR_RIGHT));
 
   // Scaling all four wheels by one factor is exactly a uniform scaling of the
   // body twist, so the echo is just the request times that factor -- reported
-  // before the sign trims, in the caller's own convention.
-  applied_vx_ = vx * scale * DRIVE_VX_SIGN;
-  applied_vy_ = vy * scale / STRAFE_GAIN * DRIVE_VY_SIGN;
-  applied_wz_ = wz * scale * DRIVE_WZ_SIGN;
+  // before the sign trims and the channel rotation, in the caller's own frame.
+  applied_vx_ = req_vx * scale;
+  applied_vy_ = req_vy * scale;
+  applied_wz_ = req_wz * scale;
 }
 
 uint16_t Drive::toPulse(float norm, float mirror) {
@@ -71,6 +115,25 @@ uint16_t Drive::toPulse(float norm, float mirror) {
   if (norm < -1.0f) norm = -1.0f;
   const float span = (float)(MOTOR_US_MAX - MOTOR_US_NEUTRAL);
   long us = (long)MOTOR_US_NEUTRAL + (long)(norm * span);
+  if (us < (long)MOTOR_US_MIN) us = MOTOR_US_MIN;
+  if (us > (long)MOTOR_US_MAX) us = MOTOR_US_MAX;
+  return (uint16_t)us;
+}
+
+float Drive::wheelOffsetUs(uint8_t ch, float speed) {
+  const float mag = fabs(speed);
+  if (mag < WHEEL_STOP_MPS) return 0.0f;
+  const uint8_t dir = (speed >= 0.0f) ? 0 : 1;
+  return WHEEL_DEADBAND_US[ch][dir] + mag / WHEEL_MPS_PER_US[ch];
+}
+
+uint16_t Drive::wheelPulse(uint8_t ch, float speed, float mirror) {
+  const float span = (float)(MOTOR_US_MAX - MOTOR_US_NEUTRAL);
+  float off = wheelOffsetUs(ch, speed);
+  if (off > span) off = span;
+  if (speed < 0.0f) off = -off;
+  const float signed_us = off * mirror;
+  long us = (long)MOTOR_US_NEUTRAL + (long)(signed_us + (signed_us >= 0.0f ? 0.5f : -0.5f));
   if (us < (long)MOTOR_US_MIN) us = MOTOR_US_MIN;
   if (us > (long)MOTOR_US_MAX) us = MOTOR_US_MAX;
   return (uint16_t)us;

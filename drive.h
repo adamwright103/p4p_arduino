@@ -40,10 +40,27 @@ class Drive {
   // True if the last setBodyVelocity() had to be scaled down.
   bool saturated() const { return saturated_; }
 
+  // The pulse width last written to each channel, microseconds, so telemetry
+  // can show what the motors were told (for calibrating the drive). Channels
+  // are named by their PIN_* constants: with DRIVE_CHANNELS_ROTATED they are
+  // not the wheels of the same names. MOTOR_US_NEUTRAL on all four after stop().
+  enum Channel : uint8_t { CH_LF, CH_RF, CH_LR, CH_RR, NUM_CHANNELS };
+  uint16_t pulseUs(uint8_t channel) const { return pulse_us_[channel]; }
+
  private:
   // norm is -1..+1 of full deflection, in body sense; mirror flips the
   // left-hand pair. Returns the pulse width to write.
   static uint16_t toPulse(float norm, float mirror);
+
+  // With DRIVE_WHEEL_CAL: the pulse that drives channel ch's wheel at speed
+  // m/s (signed, in the mixing's sense), from its fitted deadband and gain.
+  static uint16_t wheelPulse(uint8_t ch, float speed, float mirror);
+
+  // The pulse offset from neutral, in us, that wheelPulse would use for speed.
+  static float wheelOffsetUs(uint8_t ch, float speed);
+
+  // Writes the four servos, and remembers what was written for pulseUs().
+  void write(uint16_t lf, uint16_t rf, uint16_t lr, uint16_t rr);
 
   Servo lf_, rf_, lr_, rr_;
 
@@ -51,4 +68,6 @@ class Drive {
   float applied_vy_ = 0.0f;
   float applied_wz_ = 0.0f;
   bool saturated_ = false;
+  uint16_t pulse_us_[NUM_CHANNELS] = {MOTOR_US_NEUTRAL, MOTOR_US_NEUTRAL,
+                                      MOTOR_US_NEUTRAL, MOTOR_US_NEUTRAL};
 };
