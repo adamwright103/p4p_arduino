@@ -97,7 +97,7 @@ Two kinds of line:
 - **Everything else is a CSV data row**, sent at 50 Hz.
 
 ```
-t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad
+t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad,req_vx,req_vy,req_wz,us_lf,us_rf,us_lr,us_rr
 ```
 
 | field | meaning |
@@ -109,6 +109,15 @@ t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad
 | `flags` | bitfield, see below |
 | `resets` | count of spontaneous BNO085 resets. Should stay 0 |
 | `bad` | count of malformed command lines rejected |
+| `req_vx`, `req_vy`, `req_wz` | the last `V` accepted, **exactly as received**: before saturation scaling, and still shown while disarmed or timed out. `E` and `S` zero it |
+| `us_lf`, `us_rf`, `us_lr`, `us_rr` | the servo pulse width last written to each channel, µs. `1500` is neutral, as after a stop |
+
+The last seven columns are there to calibrate the drive (see Calibration); the
+firmware before 2026-10-13 sent the first nine only, and the Pi's bridge
+accepts both. The pulses are named by channel, after the `PIN_*` constants. With
+`DRIVE_CHANNELS_ROTATED` set those are **not the wheels of the same names**:
+`config.h` says which wheel each channel drives. A row is 78 bytes as this robot
+runs (no BNO085 on the Mega) and at most 107, so 34–46% of the link at 50 Hz.
 
 ### The applied-velocity echo
 
@@ -121,7 +130,8 @@ from your command when:
 
 So "why isn't the robot doing what I said" is a diff, not a guessing game. This
 also gives a clean place to add velocity ramping later — the echo will show the
-ramp, the command won't.
+ramp, the command won't. The diff is in every row: `req_*` is what you asked
+for, `vx,vy,wz` what is being acted on, and `us_*` what the motors were told.
 
 ### `flags` bitfield
 
@@ -140,18 +150,21 @@ commands. `flags=0` means disarmed.
 # p4p_arduino starting
 # BNO085 ready
 # DISARMED -- send E to enable
-t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad
-1476,0.0000,0.0,0.000,0.000,0.000,0,0,0        <- disarmed, flags=0
+t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad,req_vx,req_vy,req_wz,us_lf,us_rf,us_lr,us_rr
+1476,0.0000,0.0,0.000,0.000,0.000,0,0,0,0.000,0.000,0.000,1500,1500,1500,1500   <- disarmed, flags=0
                                                 >> E
-1496,0.0000,0.0,0.000,0.000,0.000,3,0,0        <- armed but no V yet, flags=3
+1496,0.0000,0.0,0.000,0.000,0.000,3,0,0,0.000,0.000,0.000,1500,1500,1500,1500   <- armed but no V yet, flags=3
                                                 >> V,0.2,0.0,0.0
-1516,0.0000,0.1,0.200,0.000,0.000,1,0,0        <- driving, flags=1
-1536,0.0002,0.3,0.200,0.000,0.000,1,0,0
+1516,0.0000,0.1,0.200,0.000,0.000,1,0,0,0.200,0.000,0.000,1180,1180,1820,1820   <- driving, flags=1
+1536,0.0002,0.3,0.200,0.000,0.000,1,0,0,0.200,0.000,0.000,1180,1180,1820,1820
    ... Pi goes quiet for 400 ms ...
-1956,0.0410,0.2,0.000,0.000,0.000,3,0,0        <- watchdog fired, flags=3
+1956,0.0410,0.2,0.000,0.000,0.000,3,0,0,0.200,0.000,0.000,1500,1500,1500,1500   <- watchdog fired, flags=3
                                                 >> S
-1976,0.0410,0.0,0.000,0.000,0.000,0,0,0        <- disarmed
+1976,0.0410,0.0,0.000,0.000,0.000,0,0,0,0.000,0.000,0.000,1500,1500,1500,1500   <- disarmed
 ```
+
+The pulses for `V,0.2,0,0` are this robot's: `config.h` as of 2026-10-13
+(`WHEEL_MAX_MPS` 0.5, the left pair mirrored, `DRIVE_CHANNELS_ROTATED`).
 
 ## Safety model
 
@@ -178,9 +191,10 @@ latched on the motors.
 
 # Calibration
 
-> **`WHEEL_MAX_MPS` in `config.h` is an unmeasured placeholder (0.50 m/s).**
-> Until it is measured, commanded velocities are *proportional but not
-> accurate* — `V,1.0,0,0` will move the bot, but not at 1 m/s.
+> **Calibrated per wheel on 2026-10-13** (`DRIVE_WHEEL_CAL` in `config.h`, see
+> "Per-wheel calibration" below). With it off, the single constant
+> `WHEEL_MAX_MPS` is still an unmeasured placeholder (0.50 m/s): commanded
+> velocities are then *proportional but not accurate*.
 
 There are **no wheel encoders** on this chassis, so velocity is open loop.
 Commanded speed is what the wheels are told to do, not what they achieve; it
@@ -191,7 +205,7 @@ follows:
 
 ```
 max forward / strafe = WHEEL_MAX_MPS
-max rotation         = WHEEL_MAX_MPS / CHASSIS_L_PLUS_W    (= 0.24 m)
+max rotation         = WHEEL_MAX_MPS / CHASSIS_L_PLUS_W    (= 0.1655 m)
 ```
 
 **Rotation calibrates itself for free.** The BNO085 already reports
@@ -206,13 +220,72 @@ V,0,0,2.0      ... read yaw_rate_dps ...
 S
 ```
 
-If the measured rate is consistently `k ×` the commanded one, divide
-`WHEEL_MAX_MPS` by `k`.
+If the measured rate is consistently `k ×` the commanded one, **multiply**
+`WHEEL_MAX_MPS` by `k`: the wheels reach `k ×` the speed it assumes at full
+deflection, and a larger `WHEEL_MAX_MPS` gives a smaller pulse for the same
+command. (This line said "divide" until 2026-10-13, which is backwards.)
 
 **Translation needs a tape measure.** Drive at a known `Vx` for a known time
 and measure the displacement. Do it again for `Vy` — mecanum wheels slip more
 sideways than forwards, typically 20–40% worse, and `STRAFE_GAIN` exists to
 compensate once you have the number.
+
+**Or let the Pi measure all three, deadband included.** The motors do nothing
+for pulses close to neutral, so small commands are lost (a 0.03 m/s strafe did
+not move the robot on 2026-10-13). The holonomic_mpc_ekf repo's
+`tools/drive_calibration_run.py` steps each axis through several speeds with the
+board in view of the camera and records a bag, telemetry pulses included;
+`tools/drive_calibration_fit.py` fits each axis's deadband and gain from the
+board poses and the gyro, and prints the constants to change.
+
+## Per-wheel calibration
+
+One constant for all four wheels was not enough. The calibration run of
+2026-10-13 (30 single-axis steps from rest, bag `drivecal_20261013_043214`)
+found:
+
+- **The scale was off.** Above their deadbands the wheels ran about 1.8 times
+  what `WHEEL_MAX_MPS = 0.50` assumed going forward, and turns about 3 times.
+- **Large deadbands that differ by wheel and by direction.** Nothing moved
+  below about 0.03 m/s forward, 0.09 m/s sideways or 0.23 rad/s of turn.
+- **Cross-coupling from the mismatch.** Every strafe also turned the robot
+  clockwise (about 0.1 rad/s at 0.1 m/s left), because two motors start late in
+  one direction.
+
+So each channel now has its own deadband per direction and its own gain:
+
+```
+channel (drives the)    gain [mm/s per us]   deadband [us]: + sense / - sense
+LF  (front-right)       1.308                51.0 / 100.0
+RF  (rear-right)        1.516                56.0 / 60.7
+LR  (front-left)        1.589                98.5 / 58.3
+RR  (rear-left)         1.341                54.8 / 73.8
+strafe efficiency 0.90 (STRAFE_GAIN 1.11); effective turn lever 0.1124 m (CHASSIS_L_PLUS_W)
+```
+
+They come from fitting one model to all 30 steps at once: each wheel's speed
+is its gain times its pulse's distance past its deadband, combined through the
+mixing's inverse (the forward kinematics), against each step's measured
+forward and sideways speed and turn rate. The speeds come from the
+accelerometer, integrated over each step's start and stop; the turn rates from
+the gyro. The fit is within the noise (0.96 sigma). Forward, the integrated
+speeds agree with the board poses (ratio 0.8-1.1), which confirms the poses'
+scale. Sideways they do not: with the board head-on at 1 m most poses were
+ambiguous, and the poses read 0.03-0.04 m/s for a strafe the accelerometer
+put at 0.10-0.14 m/s. A fit to the poses instead gave deadbands up to 115 us
+and a 0.73 strafe efficiency. With `DRIVE_WHEEL_CAL` the mixing asks each
+wheel for a speed and `Drive::wheelPulse()` inverts that wheel's own response.
+On the laptop, a host build of `drive.cpp` fed through the fitted model gives
+back every commanded twist within a few mm/s, with the strafe's turn gone. On
+the robot it still has to be checked: run `drive_calibration_run.py` again; the
+telemetry now reports the pulses.
+
+To refit, run `tools/drive_calibration_run.py` (with `DRIVE_WHEEL_CAL` false,
+so the pulses follow the single-constant mapping the fit assumes) and fit the
+bag per wheel with `tools/drive_wheel_fit.py <bag>`, which prints these
+constants. Its self-test recovers gains within about 2 % and deadbands within
+about 5 us, but the strafe efficiency only within about 0.1. Deadbands measured from rest may overstate them while the
+wheels are already turning.
 
 # Bring-up
 
@@ -229,6 +302,14 @@ checking against `config.h`'s three sign trims:
 If a *single* wheel runs backwards rather than a whole axis, that is wiring or
 a mirrored motor — fix `MOTOR_MIRROR_LEFT` / `MOTOR_MIRROR_RIGHT`, or the
 mounting, not the axis trims.
+
+If the axes come out *swapped* (forward drives sideways), no sign trim can fix
+it: the motor channels are on different wheels than the mixing assumes. This
+robot measured exactly that on 2026-10-13 (forward drove it left, left drove it
+back, anticlockwise turned it clockwise), so `config.h` sets
+`DRIVE_CHANNELS_ROTATED`, which turns each request into the mixing's frame. Its
+comment names the wiring that explains it, for the proper fix (reassign the
+`PIN_*` and mirror flags, then set it false).
 
 Step 3 is the one that matters most: it is the only direct check that the drive
 and the IMU agree on which way is positive.
