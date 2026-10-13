@@ -2,11 +2,13 @@
   p4p_arduino.ino
 
   Low-level driver for the P4P mecanum bot. Takes body-velocity commands from
-  the Pi over USB serial and streams IMU heading plus the applied velocity
-  back. See README.md for the full serial API.
+  the Pi over USB serial and streams IMU heading, the applied velocity, the
+  request as received and the four motor pulse widths back. See README.md for
+  the full serial API.
 
   Uplink, at STREAM_RATE_HZ:
-      t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad
+      t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad,
+      req_vx,req_vy,req_wz,us_lf,us_rf,us_lr,us_rr        (one line)
   Downlink:
       E | S | V,<vx>,<vy>,<wz>
 
@@ -54,7 +56,23 @@ void printTelemetry() {
   Serial.print(',');
   Serial.print(imu.resetCount());
   Serial.print(',');
-  Serial.println(cmd.badCount());
+  Serial.print(cmd.badCount());
+  // For calibrating the drive: the last V exactly as received (before any
+  // saturation scaling, and still shown while disarmed or timed out), and the
+  // pulse widths the motors were given. A row is 78 bytes with no IMU on the
+  // Mega, 107 at most: 34-46% of the link at 50 Hz. Past the 64-byte TX
+  // buffer print() waits for the UART, 1-4 ms a row; nothing here minds.
+  Serial.print(',');
+  Serial.print(cmd.vx(), 3);
+  Serial.print(',');
+  Serial.print(cmd.vy(), 3);
+  Serial.print(',');
+  Serial.print(cmd.wz(), 3);
+  for (uint8_t ch = 0; ch < Drive::NUM_CHANNELS; ch++) {
+    Serial.print(',');
+    Serial.print(drive.pulseUs(ch));
+  }
+  Serial.println();
 }
 
 void setup() {
