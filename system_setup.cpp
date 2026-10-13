@@ -12,9 +12,9 @@ void systemSetup() {
   Serial.begin(SERIAL_BAUD);
   Serial.println(F("# p4p_arduino starting"));
 
-  // Motors first and unconditionally: the IMU bring-up below can block for a
-  // long time, and four unattached servo pins must not be left floating while
-  // it does.
+  // Motors first and unconditionally: the IMU bring-up below can block for
+  // about a second, and four unattached servo pins must not be left floating
+  // while it does.
   drive.begin();
 
 #if defined(WIRE_HAS_TIMEOUT)
@@ -28,12 +28,21 @@ void systemSetup() {
   // "not found".
   delay(150);
 
-  while (!imu.begin(IMU_I2C_ADDR, IMU_REPORT_US)) {
-    Serial.println(F("# BNO085 not found: check SDA=20, SCL=21, power, address"));
-    delay(1000);
+  // The BNO085 now sits on the Pi's I2C bus, so a Mega without one is normal.
+  // Look for it briefly, then carry on regardless: waiting for ever would leave
+  // the bot deaf to E, S and V, with no telemetry, and the motors need no IMU.
+  bool imu_ok = imu.begin(IMU_I2C_ADDR, IMU_REPORT_US);
+  for (uint8_t i = 1; i < IMU_BEGIN_ATTEMPTS && !imu_ok; i++) {
+    delay(250);
+    imu_ok = imu.begin(IMU_I2C_ADDR, IMU_REPORT_US);
   }
 
-  Serial.println(F("# BNO085 ready"));
+  if (imu_ok) {
+    Serial.println(F("# BNO085 ready"));
+  } else {
+    Serial.println(F("# BNO085 not found: running without it, heading and yaw rate read 0"));
+  }
   Serial.println(F("# DISARMED -- send E to enable"));
-  Serial.println(F("t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad"));
+  Serial.println(F("t_ms,heading_rad,yaw_rate_dps,vx,vy,wz,flags,resets,bad,"
+                   "req_vx,req_vy,req_wz,us_lf,us_rf,us_lr,us_rr"));
 }

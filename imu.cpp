@@ -1,15 +1,24 @@
 // imu.cpp
 #include "imu.h"
+#include <Wire.h>
 
 Imu::Imu(int8_t reset_pin, float yaw_sign)
     : bno_(reset_pin), yaw_sign_(yaw_sign) {}
 
 bool Imu::begin(uint8_t i2c_addr, uint32_t report_interval_us) {
   report_us_ = report_interval_us;
+  present_ = false;
+  // Probe the address the way the library does, but first: on a miss the
+  // library prints an untagged "I2C address not found", which the Pi would
+  // count as a bad telemetry row.
+  Wire.begin();
+  Wire.beginTransmission(i2c_addr);
+  if (Wire.endTransmission() != 0) return false;
   if (!bno_.begin_I2C(i2c_addr)) return false;
   if (!enableReports()) return false;
   bno_.wasReset();   // clear the flag raised by the power-up reset
   have_yaw_ = false;
+  present_ = true;
   return true;
 }
 
@@ -26,6 +35,9 @@ float Imu::wrapPi(float a) {
 }
 
 uint8_t Imu::poll() {
+  // No BNO: every call below would be an I2C transaction to nobody.
+  if (!present_) return 0;
+
   // The BNO can reset on its own. Reports must be re-enabled, and the yaw
   // jump across the reset must not be integrated into the heading.
   if (bno_.wasReset()) {

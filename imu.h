@@ -20,7 +20,8 @@ class Imu {
   bool begin(uint8_t i2c_addr, uint32_t report_interval_us);
 
   // Drains every pending report. Call as often as possible; never blocks.
-  // Returns the number of new heading samples consumed.
+  // Returns the number of new heading samples consumed. Does nothing, and
+  // touches no I2C, until begin() has succeeded.
   uint8_t poll();
 
   float heading() const { return heading_; }             // unwrapped, rad
@@ -32,6 +33,7 @@ class Imu {
   uint32_t lastSampleMs() const { return last_sample_ms_; }
   uint32_t sampleCount() const { return samples_; }
   uint16_t resetCount() const { return resets_; }         // spontaneous resets
+  bool present() const { return present_; }               // begin() found it
 
   static float wrapPi(float a);
 
@@ -48,6 +50,7 @@ class Imu {
   float offset_ = 0.0f;
   float yaw_rate_ = 0.0f;
   bool have_yaw_ = false;
+  bool present_ = false;
 
   uint32_t last_sample_ms_ = 0;
   uint32_t samples_ = 0;
