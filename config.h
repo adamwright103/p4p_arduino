@@ -93,8 +93,9 @@ constexpr bool DRIVE_CHANNELS_ROTATED = true;
 // (153 x 178 mm between roller centres, 2026-10-13), but the drive calibration
 // of 2026-10-13 found the robot turning as if this were 0.1124 m (the rollers
 // slip). The effective value is the one that makes a commanded Wz come out
-// right, so that is what is used. Refitted from two runs: 0.1384.
-constexpr float CHASSIS_L_PLUS_W = 0.1384f;
+// right, so that is what is used. Refitted from two runs: 0.1384; refitted
+// 2026-10-15 with the per-wheel constants below: 0.1579.
+constexpr float CHASSIS_L_PLUS_W = 0.1579f;
 
 // *** UNCALIBRATED -- see "Calibration" in README.md ***
 // Wheel surface speed at full pulse deflection, m/s. This is the single
@@ -108,8 +109,9 @@ constexpr float WHEEL_MAX_MPS = 0.50f;
 // Mecanum wheels slip more sideways than forwards, so a commanded strafe
 // undershoots. Raise above 1.0 to compensate once measured. 1.0 = no
 // correction. Measured 2026-10-13 (two runs): sideways the chassis makes 0.77
-// of what the same wheel speeds make forwards, so 1 / 0.77.
-constexpr float STRAFE_GAIN = 1.30f;
+// of what the same wheel speeds make forwards, so 1 / 0.77. Refitted 2026-10-15
+// with the per-wheel constants below: 0.62, so 1 / 0.62.
+constexpr float STRAFE_GAIN = 1.61f;
 
 // Per-wheel calibration (2026-10-13). Each motor does nothing until its pulse is
 // some distance from neutral, and that distance differs by channel and by
@@ -130,11 +132,23 @@ constexpr float STRAFE_GAIN = 1.30f;
 // channels LF, RF, LR, RR (the PIN_* names, not the wheels they drive, see
 // DRIVE_CHANNELS_ROTATED); [0] is the mixing's positive sense, [1] negative.
 // false restores the single-constant mapping through WHEEL_MAX_MPS.
+// Refitted 2026-10-15, after the camera and the gripper were moved: on these
+// constants' predecessors the robot gave 1.25 x the command forward and 1.5 x
+// backward and arced, turning -0.07 to -0.11 rad/s (clockwise) driving forward
+// and +0.03 to +0.14 rad/s backward. drivecal_20261015_001339 (30 steps, pulses
+// logged), the accelerometer turned by the IMU's measured -2.81 deg yaw, with
+// one gain per wheel and a deadband per direction: residual 1.03 sigma, and the
+// model reproduces the arcing. A gain per direction from this one run came out
+// underdetermined (one gain on its bound, 10:1 between directions), and fitting
+// it with the two 2026-10-13 runs did not agree (2.1 sigma): the drive behaves
+// differently now. The 2026-10-13 values were {76.0, 58.2}, {51.2, 55.5},
+// {83.7, 55.2}, {63.9, 54.5} us and {1.838, 1.124}, {1.735, 1.613},
+// {1.482, 1.804}, {1.592, 1.510} mm/s per us.
 constexpr bool DRIVE_WHEEL_CAL = true;
 constexpr float WHEEL_DEADBAND_US[4][2] = {
-  {76.0f, 58.2f}, {51.2f, 55.5f}, {83.7f, 55.2f}, {63.9f, 54.5f}};
+  {84.0f, 72.7f}, {57.1f, 64.3f}, {65.1f, 54.3f}, {52.0f, 55.9f}};
 constexpr float WHEEL_MPS_PER_US[4][2] = {
-  {1.838e-3f, 1.124e-3f}, {1.735e-3f, 1.613e-3f}, {1.482e-3f, 1.804e-3f}, {1.592e-3f, 1.510e-3f}};
+  {1.865e-3f, 1.865e-3f}, {2.774e-3f, 2.774e-3f}, {2.188e-3f, 2.188e-3f}, {2.105e-3f, 2.105e-3f}};
 // Strafing turns the chassis: with the wheels calibrated, a strafe still turned
 // it about -0.52 rad/s per m/s (clockwise going left; 2026-10-13, ten strafe
 // steps of 0.02-0.15 m/s, gyro). No per-wheel speed explains it (the rollers
